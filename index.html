@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#071a2d" />
+  <meta name="description" content="Weather, marine conditions and tide forecasts for any chosen location." />
+  <title>Weather & Tides</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Weather and Tides home">
+        <span class="brand-mark">≈</span>
+        <span>Weather & Tides</span>
+      </a>
+      <div class="header-actions">
+        <button id="unitButton" class="ghost-btn" type="button">°C / mph</button>
+        <button id="settingsButton" class="icon-btn" type="button" aria-label="Tide settings">⚙</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Live coastal intelligence</p>
+          <h1>Know the weather.<br><span>Read the water.</span></h1>
+          <p class="hero-copy">Search any location for current weather, rain, wind, visibility, waves, sea temperature, currents and tide predictions.</p>
+        </div>
+        <div class="search-panel">
+          <form id="searchForm" class="search-form">
+            <span class="search-icon">⌕</span>
+            <input id="locationInput" autocomplete="off" placeholder="Search town, harbour or postcode" aria-label="Location" />
+            <button type="submit">Search</button>
+          </form>
+          <div id="suggestions" class="suggestions" hidden></div>
+          <button id="locateButton" class="location-btn" type="button">◎ Use my current location</button>
+        </div>
+      </section>
+
+      <section id="loadingState" class="loading-state" hidden>
+        <div class="spinner"></div>
+        <p>Reading the sky and sea…</p>
+      </section>
+
+      <section id="errorState" class="error-state" hidden></section>
+
+      <section id="dashboard" hidden>
+        <div class="location-heading">
+          <div>
+            <p id="localTime" class="eyebrow"></p>
+            <h2 id="placeName"></h2>
+            <p id="coordinates" class="muted"></p>
+          </div>
+          <div id="conditionBadge" class="condition-badge"></div>
+        </div>
+
+        <div class="current-grid">
+          <article class="primary-card weather-card">
+            <div class="weather-now">
+              <div id="weatherIcon" class="weather-icon">☀</div>
+              <div>
+                <div id="temperature" class="temperature"></div>
+                <p id="weatherDescription" class="condition-text"></p>
+                <p id="feelsLike" class="muted"></p>
+              </div>
+            </div>
+            <div id="weatherMetrics" class="metric-grid"></div>
+          </article>
+
+          <article class="primary-card marine-card">
+            <div class="card-title-row">
+              <div>
+                <p class="eyebrow">Marine conditions</p>
+                <h3>On the water</h3>
+              </div>
+              <span id="marineStatus" class="status-pill"></span>
+            </div>
+            <div id="marineMetrics" class="metric-grid marine-metrics"></div>
+            <p class="navigation-warning">Forecast model only. Not for navigation or safety-critical decisions.</p>
+          </article>
+        </div>
+
+        <div class="section-tabs" role="tablist">
+          <button class="tab active" data-tab="hourly" type="button">Hourly</button>
+          <button class="tab" data-tab="daily" type="button">10 day</button>
+          <button class="tab" data-tab="tides" type="button">Tides</button>
+          <button class="tab" data-tab="marine" type="button">Marine</button>
+        </div>
+
+        <section id="hourlyPanel" class="tab-panel">
+          <div id="hourlyForecast" class="scroll-cards"></div>
+        </section>
+
+        <section id="dailyPanel" class="tab-panel" hidden>
+          <div id="dailyForecast" class="daily-list"></div>
+        </section>
+
+        <section id="tidesPanel" class="tab-panel" hidden>
+          <div class="tides-layout">
+            <article class="panel-card chart-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Sea level forecast</p>
+                  <h3 id="tideTitle">Today’s tide curve</h3>
+                </div>
+                <span id="tideSource" class="status-pill"></span>
+              </div>
+              <canvas id="tideChart" width="900" height="300"></canvas>
+              <p id="tideDisclaimer" class="navigation-warning"></p>
+            </article>
+            <article class="panel-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Next events</p>
+                  <h3>High & low water</h3>
+                </div>
+              </div>
+              <div id="tideEvents" class="tide-events"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="marinePanel" class="tab-panel" hidden>
+          <div id="marineForecast" class="daily-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      <span>Weather and marine model data: Open-Meteo.</span>
+      <span id="footerTideCredit"></span>
+    </footer>
+  </div>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="settings-card">
+      <div class="card-title-row">
+        <div>
+          <p class="eyebrow">Optional precision tides</p>
+          <h3>WorldTides API</h3>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="Close">×</button>
+      </div>
+      <p class="muted">Without a key, the app estimates high and low points from Open-Meteo’s sea-level model. Add a WorldTides key for dedicated tide heights and extremes.</p>
+      <label for="tideKey">API key</label>
+      <input id="tideKey" type="password" placeholder="Paste WorldTides API key" />
+      <div class="dialog-actions">
+        <button id="clearKeyButton" class="ghost-btn" type="button">Clear key</button>
+        <button id="saveKeyButton" class="primary-btn" type="button">Save & refresh</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
