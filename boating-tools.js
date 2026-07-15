@@ -38,6 +38,10 @@
   }
 
   const panelIds={tides:'tidesPanel',marine:'marinePanel',traffic:'trafficPanel',links:'linksPanel'};
+  function showNormalDashboard(){
+    document.querySelectorAll('.tab').forEach(b=>{b.classList.remove('active');b.setAttribute('aria-selected','false')});
+    Object.values(panelIds).forEach(id=>{const panel=document.getElementById(id);if(panel)panel.hidden=true});
+  }
   function switchTab(name){
     document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.tab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active))});
     const dashboard=document.getElementById('dashboard');
@@ -51,5 +55,6 @@
   }
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();switchTab(b.dataset.tab)}));
   document.getElementById('refreshTraffic')?.addEventListener('click',()=>renderTraffic(true));
-  window.addEventListener('load',()=>{setTimeout(()=>switchTab('tides'),150);setTimeout(renderBoatPlan,700)},{once:true});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showNormalDashboard,{once:true});else showNormalDashboard();
+  window.addEventListener('load',()=>setTimeout(renderBoatPlan,700),{once:true});
 })();
