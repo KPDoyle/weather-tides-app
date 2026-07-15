@@ -11,38 +11,6 @@
   `;
   document.head.appendChild(style);
 
-  const dateOf = p => p?.date ? new Date(p.date) : new Date(Number(p?.dt) * 1000);
-
-  function current48Hours(points) {
-    const sorted = (points || [])
-      .map(p => ({ ...p, _time: dateOf(p).getTime(), height: Number(p.height) }))
-      .filter(p => Number.isFinite(p._time) && Number.isFinite(p.height))
-      .sort((a,b) => a._time - b._time);
-    if (sorted.length < 2) return sorted;
-
-    const now = Date.now();
-    const end = now + 48 * 60 * 60 * 1000;
-    let after = sorted.findIndex(p => p._time >= now);
-    if (after < 0) after = sorted.length - 1;
-    const before = Math.max(0, after - 1);
-    let start = after;
-    if (Math.abs(sorted[before]._time - now) <= Math.abs(sorted[after]._time - now)) start = before;
-
-    const selected = sorted.slice(start).filter(p => p._time <= end);
-    if (selected.length && selected[0]._time < now && selected[1]) {
-      const a = selected[0], b = selected[1];
-      const fraction = Math.max(0, Math.min(1, (now - a._time) / (b._time - a._time || 1)));
-      selected[0] = {
-        date: new Date(now).toISOString(),
-        dt: now / 1000,
-        _time: now,
-        height: a.height + (b.height - a.height) * fraction,
-        current: true
-      };
-    }
-    return selected;
-  }
-
   function drawWindChart() {
     const canvas = document.getElementById('windChart');
     if (!canvas) return;
@@ -107,19 +75,10 @@
     if(summary) summary.textContent=`Peak ${Math.round(Math.max(...speed))} ${unit} · Gusts ${Math.round(Math.max(...gust))} ${unit}`;
   }
 
-  const previousDraw = window.drawTideChart;
-  if (typeof previousDraw === 'function') {
-    window.drawTideChart = function(points){
-      const appState = getState();
-      const source = Array.isArray(points) && points.length ? points : (appState?.tide?.heights || []);
-      return previousDraw(current48Hours(source));
-    };
-  }
-
   function redrawAll(){
     const appState = getState();
     drawWindChart();
-    if(appState?.tide && typeof window.drawTideChart==='function') window.drawTideChart(appState.tide.heights || []);
+    if(appState?.tide && typeof window.drawTideChart==='function') window.drawTideChart();
   }
   function scheduleRedraw(delay=80){clearTimeout(redrawTimer);redrawTimer=setTimeout(redrawAll,delay)}
 
