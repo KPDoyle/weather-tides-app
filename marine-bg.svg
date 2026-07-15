@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a3768"/><stop offset=".55" stop-color="#276f9b"/><stop offset="1" stop-color="#8fc3d6"/></linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d91b8"/><stop offset="1" stop-color="#062b55"/></linearGradient>
+    <radialGradient id="glow" cx="65%" cy="18%" r="48%"><stop offset="0" stop-color="#dff6ff" stop-opacity=".9"/><stop offset="1" stop-color="#dff6ff" stop-opacity="0"/></radialGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+  </defs>
+  <rect width="1600" height="700" fill="url(#sky)"/>
+  <rect width="1600" height="700" fill="url(#glow)"/>
+  <g opacity=".22" filter="url(#blur)" fill="#fff"><ellipse cx="320" cy="260" rx="260" ry="60"/><ellipse cx="1200" cy="360" rx="330" ry="76"/></g>
+  <path d="M0 640 C220 610 410 675 610 645 S1030 610 1260 650 S1450 620 1600 640 L1600 1200 L0 1200 Z" fill="url(#sea)"/>
+  <g fill="none" stroke="#d8f5ff" stroke-opacity=".18" stroke-width="5"><path d="M0 760 C220 720 430 810 650 765 S1090 720 1320 775 S1490 740 1600 760"/><path d="M0 900 C210 865 420 940 620 900 S1030 860 1270 910 S1470 870 1600 900"/></g>
+  <g opacity=".22" fill="#eaf7fb"><path d="M565 1200 L800 780 L1030 1200 Z"/><path d="M710 1200 L815 885 L930 1200 Z"/></g>
+  <g opacity=".35" stroke="#eefaff" stroke-width="10" fill="none"><path d="M800 1190 V820"/><path d="M800 840 L1030 950"/><path d="M800 900 L590 995"/></g>
+  <g opacity=".28" fill="#eefaff"><rect x="775" y="760" width="50" height="110" rx="8"/><circle cx="800" cy="745" r="22"/></g>
+</svg>
