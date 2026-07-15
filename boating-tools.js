@@ -2,7 +2,7 @@
   const getState=()=>typeof state!=='undefined'?state:null;
   let lastTrafficKey='';
   const style=document.createElement('style');
-  style.textContent='.segment{grid-template-columns:repeat(3,1fr)}.traffic-map{position:relative;min-height:520px;border-radius:18px;overflow:hidden;background:rgba(0,0,0,.12)}.traffic-map iframe{display:block;width:100%;height:520px;border:0;background:#0b2035}.traffic-loading{display:grid;place-items:center;min-height:520px;padding:24px;text-align:center;opacity:.75}.traffic-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.traffic-actions a{text-decoration:none}.boat-plan-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.boat-plan-summary>div,.boat-checklist>div{padding:13px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.05)}.boat-plan-summary span,.boat-checklist span{display:block;font-size:11px;letter-spacing:.055em;text-transform:uppercase;opacity:.68}.boat-plan-summary strong,.boat-checklist strong{display:block;margin-top:5px;font-size:15px}.boat-checklist{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.boat-checklist .wide{grid-column:1/-1}.condition-good strong{color:#88f2c0}.condition-watch strong{color:#ffd277}.condition-caution strong{color:#ff9b91}.view-hidden{display:none!important}@media(max-width:720px){.traffic-map,.traffic-map iframe,.traffic-loading{min-height:430px;height:430px}.boat-plan-summary,.boat-checklist{grid-template-columns:1fr}.boat-checklist .wide{grid-column:auto}}';
+  style.textContent='.segment{grid-template-columns:repeat(4,1fr)}.traffic-map{position:relative;min-height:520px;border-radius:18px;overflow:hidden;background:rgba(0,0,0,.12)}.traffic-map iframe{display:block;width:100%;height:520px;border:0;background:#0b2035}.traffic-loading{display:grid;place-items:center;min-height:520px;padding:24px;text-align:center;opacity:.75}.traffic-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.traffic-actions a{text-decoration:none}.boat-plan-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.boat-plan-summary>div,.boat-checklist>div{padding:13px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.05)}.boat-plan-summary span,.boat-checklist span{display:block;font-size:11px;letter-spacing:.055em;text-transform:uppercase;opacity:.68}.boat-plan-summary strong,.boat-checklist strong{display:block;margin-top:5px;font-size:15px}.boat-checklist{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.boat-checklist .wide{grid-column:1/-1}.condition-good strong{color:#88f2c0}.condition-watch strong{color:#ffd277}.condition-caution strong{color:#ff9b91}.selected-panel{margin:8px 0 18px}.boating-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-top:14px}.boating-links a{display:block;padding:15px;border-radius:14px;background:rgba(4,36,74,.82);border:1px solid rgba(145,203,247,.24);color:white;text-decoration:none;transition:transform .15s ease,background .15s ease}.boating-links a:hover{transform:translateY(-2px);background:rgba(10,63,119,.9)}.boating-links strong,.boating-links span{display:block}.boating-links span{margin-top:5px;color:rgba(235,246,255,.7);font-size:13px;line-height:1.4}@media(max-width:720px){.segment{grid-template-columns:repeat(2,1fr)}.traffic-map,.traffic-map iframe,.traffic-loading{min-height:430px;height:430px}.boat-plan-summary,.boat-checklist,.boating-links{grid-template-columns:1fr}.boat-checklist .wide{grid-column:auto}}';
   document.head.appendChild(style);
 
   function locationCoords(){const s=getState(),lat=Number(s?.location?.latitude),lon=Number(s?.location?.longitude);return Number.isFinite(lat)&&Number.isFinite(lon)?{lat,lon}:null}
@@ -37,37 +37,19 @@
     checklist.innerHTML=`<div class="condition-${classify(visibility,5,2,true)}"><span>Visibility</span><strong>${fmt(visibility,1)} km</strong></div><div class="condition-${classify(rain,.5,2)}"><span>Rain now</span><strong>${fmt(rain,1)} ${s?.units==='metric'?'mm':'in'}</strong></div><div><span>Next tide</span><strong>${tideText}</strong></div><div><span>Sunset</span><strong>${sunset}</strong></div><div><span>Swell period</span><strong>${fmt(marine.swell_wave_period,1)} s</strong></div><div><span>Sea temperature</span><strong>${fmt(marine.sea_surface_temperature,1)}°</strong></div>`;
   }
 
-  function setVisible(element,visible){if(element)element.classList.toggle('view-hidden',!visible)}
-  function applyView(name){
-    const overview=document.querySelector('.reference-overview');
-    const hero=document.querySelector('.hero-weather');
-    const hourly=document.querySelector('.hourly-card');
-    const wind=document.querySelector('.wind-chart-card');
-    const daily=document.getElementById('dailyForecast')?.closest('.card');
-    const tiles=document.querySelector('.tile-grid');
-    const tides=document.getElementById('tidesPanel');
-    const marine=document.getElementById('marinePanel');
-    const traffic=document.getElementById('trafficPanel');
-
-    setVisible(overview||hero,name!=='traffic');
-    if(!overview)setVisible(hourly,name!=='traffic');
-    setVisible(wind,name==='tides'||name==='marine');
-    setVisible(daily,false);
-    setVisible(tiles,name==='marine');
-    setVisible(tides,name==='tides');
-    setVisible(marine,name==='marine');
-    setVisible(traffic,name==='traffic');
-  }
-
+  const panelIds={tides:'tidesPanel',marine:'marinePanel',traffic:'trafficPanel',links:'linksPanel'};
   function switchTab(name){
     document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.tab===name;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active))});
-    applyView(name);
-    if(name==='tides'&&typeof window.drawTideChart==='function')setTimeout(()=>window.drawTideChart(),40);
-    if(name==='marine')setTimeout(renderBoatPlan,30);
-    if(name==='traffic')setTimeout(()=>renderTraffic(false),30);
-    document.getElementById('dashboard')?.scrollIntoView({behavior:'smooth',block:'start'});
+    const dashboard=document.getElementById('dashboard');
+    Object.entries(panelIds).forEach(([key,id])=>{const panel=document.getElementById(id);if(panel)panel.hidden=key!==name});
+    const activePanel=document.getElementById(panelIds[name]);
+    if(dashboard&&activePanel&&dashboard.firstElementChild!==activePanel)dashboard.insertBefore(activePanel,dashboard.firstElementChild);
+    if(name==='tides'&&typeof window.drawTideChart==='function')setTimeout(()=>window.drawTideChart(),60);
+    if(name==='marine')setTimeout(renderBoatPlan,40);
+    if(name==='traffic')setTimeout(()=>renderTraffic(false),40);
+    activePanel?.scrollIntoView({behavior:'smooth',block:'start'});
   }
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();switchTab(b.dataset.tab)}));
   document.getElementById('refreshTraffic')?.addEventListener('click',()=>renderTraffic(true));
-  window.addEventListener('load',()=>{setTimeout(()=>applyView('tides'),150);setTimeout(renderBoatPlan,700)},{once:true});
+  window.addEventListener('load',()=>{setTimeout(()=>switchTab('tides'),150);setTimeout(renderBoatPlan,700)},{once:true});
 })();
