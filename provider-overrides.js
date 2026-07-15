@@ -17,4 +17,7 @@
   window.loadTides=async function(loc){const r=await fetch('/api/tides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:loc.latitude,lon:loc.longitude})}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.error||'WorldTides data is unavailable. Add WORLD_TIDES_API_KEY in Vercel.');return{type:'WorldTides',...x}};
   const correctLabels=()=>{const s=document.getElementById('weatherSource'),a=document.getElementById('weatherAttribution');if(s&&s.textContent==='Apple Weather')s.textContent='Met Office';if(a&&/Apple Weather/.test(a.textContent))a.textContent='Weather data: Met Office DataHub'};
   new MutationObserver(correctLabels).observe(document.documentElement,{subtree:true,childList:true,characterData:true});correctLabels();
+  const settings=document.getElementById('settingsButton'),save=document.getElementById('saveKeyButton');
+  if(settings)settings.onclick=()=>document.getElementById('settingsDialog')?.showModal();
+  if(save)save.onclick=()=>document.getElementById('settingsDialog')?.close();
 })();
