@@ -20,6 +20,7 @@ const WMO = {
 function condition(code){ return WMO[code] || ['Variable','🌤']; }
 function compass(deg=0){ const d=['N','NE','E','SE','S','SW','W','NW']; return d[Math.round(deg/45)%8]; }
 function fmt(value, digits=0){ return Number.isFinite(value) ? value.toFixed(digits) : '—'; }
+function safe(v){ return v ?? '—'; }
 function currentIndex(times){
   const now = Date.now();
   let best=0, diff=Infinity;
@@ -39,6 +40,7 @@ async function geocode(query){
 }
 
 async function reverseGeocode(lat,lon){
+  // Open-Meteo does not offer reverse geocoding; use coordinates as a reliable fallback.
   return { name:'Current location', country:'', latitude:lat, longitude:lon, timezone:'auto' };
 }
 
@@ -71,7 +73,8 @@ async function loadTideData(loc){
   if(state.tideKey){
     try{
       const r=await fetch('/api/tides', {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body:JSON.stringify({lat:loc.latitude,lon:loc.longitude,key:state.tideKey})
       });
       const data=await r.json();
@@ -105,10 +108,14 @@ function render(){
   $('weatherDescription').textContent=desc;
   $('feelsLike').textContent=`Feels like ${Math.round(c.apparent_temperature)}${u.temp}`;
   $('weatherMetrics').innerHTML=[
-    metric('Wind',`${fmt(c.wind_speed_10m)} ${u.wind} ${compass(c.wind_direction_10m)}`), metric('Gusts',`${fmt(c.wind_gusts_10m)} ${u.wind}`),
-    metric('Rain',`${fmt(c.precipitation,1)} ${u.rain}`), metric('Humidity',`${fmt(c.relative_humidity_2m)}%`),
-    metric('Pressure',`${fmt(c.pressure_msl)} hPa`), metric('Visibility',`${fmt(c.visibility/1000,1)} km`),
-    metric('Cloud',`${fmt(c.cloud_cover)}%`), metric('UV index',fmt(c.uv_index,1))
+    metric('Wind',`${fmt(c.wind_speed_10m)} ${u.wind} ${compass(c.wind_direction_10m)}`),
+    metric('Gusts',`${fmt(c.wind_gusts_10m)} ${u.wind}`),
+    metric('Rain',`${fmt(c.precipitation,1)} ${u.rain}`),
+    metric('Humidity',`${fmt(c.relative_humidity_2m)}%`),
+    metric('Pressure',`${fmt(c.pressure_msl)} hPa`),
+    metric('Visibility',`${fmt(c.visibility/1000,1)} km`),
+    metric('Cloud',`${fmt(c.cloud_cover)}%`),
+    metric('UV index',fmt(c.uv_index,1))
   ].join('');
   renderMarineCurrent(); renderHourly(); renderDaily(); renderMarineForecast(); renderTides();
   $('unitButton').textContent=state.units==='metric'?'°C / km/h':'°F / mph';
@@ -119,10 +126,14 @@ function renderMarineCurrent(){
   if(!m){ $('marineStatus').textContent='Inland / unavailable'; $('marineMetrics').innerHTML='<p class="muted">No marine grid data was found near this point.</p>'; return; }
   $('marineStatus').textContent='Model forecast';
   $('marineMetrics').innerHTML=[
-    metric('Wave height',`${fmt(m.wave_height,1)} ${u.wave}`), metric('Wave period',`${fmt(m.wave_period,1)} s`),
-    metric('Wave direction',`${fmt(m.wave_direction)}° ${compass(m.wave_direction)}`), metric('Swell',`${fmt(m.swell_wave_height,1)} ${u.wave}`),
-    metric('Sea temperature',`${fmt(m.sea_surface_temperature,1)}${u.temp}`), metric('Current',`${fmt(m.ocean_current_velocity,1)} ${u.wind}`),
-    metric('Current direction',`${fmt(m.ocean_current_direction)}° ${compass(m.ocean_current_direction)}`), metric('Sea level',`${fmt(m.sea_level_height_msl,2)} ${u.wave}`)
+    metric('Wave height',`${fmt(m.wave_height,1)} ${u.wave}`),
+    metric('Wave period',`${fmt(m.wave_period,1)} s`),
+    metric('Wave direction',`${fmt(m.wave_direction)}° ${compass(m.wave_direction)}`),
+    metric('Swell',`${fmt(m.swell_wave_height,1)} ${u.wave}`),
+    metric('Sea temperature',`${fmt(m.sea_surface_temperature,1)}${u.temp}`),
+    metric('Current',`${fmt(m.ocean_current_velocity,1)} ${u.wind}`),
+    metric('Current direction',`${fmt(m.ocean_current_direction)}° ${compass(m.ocean_current_direction)}`),
+    metric('Sea level',`${fmt(m.sea_level_height_msl,2)} ${u.wave}`)
   ].join('');
 }
 
@@ -153,13 +164,19 @@ function renderMarineForecast(){
 }
 
 function renderTides(){
-  const t=state.tide,u=unitConfig(); let heights=t.heights||[], extremes=t.extremes||[];
+  const t=state.tide,u=unitConfig();
+  let heights=t.heights||[], extremes=t.extremes||[];
   if(t.type==='worldtides'){
-    $('tideSource').textContent='WorldTides'; $('tideDisclaimer').textContent=t.copyright || 'Tidal predictions supplied by WorldTides.'; $('footerTideCredit').textContent=t.copyright || 'Tides: WorldTides';
+    $('tideSource').textContent='WorldTides';
+    $('tideDisclaimer').textContent=t.copyright || 'Tidal predictions supplied by WorldTides.';
+    $('footerTideCredit').textContent=t.copyright || 'Tides: WorldTides';
   } else if(t.type==='model'){
-    $('tideSource').textContent='Sea-level model'; $('tideDisclaimer').textContent='Approximate modelled sea-level height including tides. Coastal accuracy is limited and this is not suitable for navigation.'; $('footerTideCredit').textContent='Tide curve inferred from Open-Meteo sea-level model.';
+    $('tideSource').textContent='Sea-level model';
+    $('tideDisclaimer').textContent='Approximate modelled sea-level height including tides. Coastal accuracy is limited and this is not suitable for navigation.';
+    $('footerTideCredit').textContent='Tide curve inferred from Open-Meteo sea-level model.';
   } else {
-    $('tideSource').textContent='Unavailable'; $('tideDisclaimer').textContent='No tide or sea-level data was available for this location.';
+    $('tideSource').textContent='Unavailable';
+    $('tideDisclaimer').textContent='No tide or sea-level data was available for this location.';
   }
   const now=Date.now()/1000;
   const upcoming=extremes.filter(x=>(x.dt || new Date(x.date).getTime()/1000)>now).slice(0,10);
@@ -171,17 +188,45 @@ function renderTides(){
 }
 
 function drawTideChart(points){
-  const canvas=$('tideChart'), ctx=canvas.getContext('2d'); const width=canvas.clientWidth*devicePixelRatio,height=300*devicePixelRatio;
+  const canvas=$('tideChart'), ctx=canvas.getContext('2d');
+  const ratio=devicePixelRatio;
+  const width=canvas.clientWidth*ratio,height=300*ratio;
   canvas.width=width;canvas.height=height;ctx.clearRect(0,0,width,height);
-  if(points.length<2){ ctx.fillStyle='#9eb4c8';ctx.font=`${14*devicePixelRatio}px Manrope`;ctx.fillText('No tide curve available',20*devicePixelRatio,45*devicePixelRatio);return; }
-  const pad=32*devicePixelRatio, vals=points.map(p=>Number(p.height)), min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
-  const xy=points.map((p,i)=>[pad+i*(width-pad*2)/(points.length-1),height-pad-(Number(p.height)-min)*(height-pad*2)/range]);
+  if(points.length<2){ ctx.fillStyle='#9eb4c8';ctx.font=`${14*ratio}px Manrope`;ctx.fillText('No tide curve available',20*ratio,45*ratio);return; }
+
+  const left=38*ratio,right=18*ratio,top=24*ratio,bottom=50*ratio;
+  const plotWidth=width-left-right, plotHeight=height-top-bottom;
+  const vals=points.map(p=>Number(p.height)), min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
+  const xy=points.map((p,i)=>[
+    left+i*plotWidth/(points.length-1),
+    top+plotHeight-(Number(p.height)-min)*plotHeight/range
+  ]);
+
   const grad=ctx.createLinearGradient(0,0,width,0);grad.addColorStop(0,'#5ee7e7');grad.addColorStop(1,'#52b7ff');
-  ctx.strokeStyle='rgba(158,180,200,.16)';ctx.lineWidth=1*devicePixelRatio;
-  for(let i=0;i<5;i++){const y=pad+i*(height-pad*2)/4;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(width-pad,y);ctx.stroke();}
-  ctx.beginPath();ctx.moveTo(xy[0][0],height-pad);xy.forEach(([x,y])=>ctx.lineTo(x,y));ctx.lineTo(xy.at(-1)[0],height-pad);ctx.closePath();
-  const fill=ctx.createLinearGradient(0,pad,0,height-pad);fill.addColorStop(0,'rgba(82,183,255,.35)');fill.addColorStop(1,'rgba(82,183,255,.02)');ctx.fillStyle=fill;ctx.fill();
-  ctx.beginPath();xy.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle=grad;ctx.lineWidth=3*devicePixelRatio;ctx.stroke();
+  ctx.strokeStyle='rgba(158,180,200,.16)';ctx.lineWidth=1*ratio;
+  for(let i=0;i<5;i++){
+    const y=top+i*plotHeight/4;
+    ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();
+  }
+
+  ctx.beginPath();ctx.moveTo(xy[0][0],top+plotHeight);xy.forEach(([x,y])=>ctx.lineTo(x,y));ctx.lineTo(xy.at(-1)[0],top+plotHeight);ctx.closePath();
+  const fill=ctx.createLinearGradient(0,top,0,top+plotHeight);fill.addColorStop(0,'rgba(82,183,255,.35)');fill.addColorStop(1,'rgba(82,183,255,.02)');ctx.fillStyle=fill;ctx.fill();
+  ctx.beginPath();xy.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle=grad;ctx.lineWidth=3*ratio;ctx.stroke();
+
+  const labelCount=width/ratio<600?5:9;
+  ctx.font=`${11*ratio}px Manrope`;
+  ctx.fillStyle='#9eb4c8';
+  ctx.textAlign='center';
+  ctx.textBaseline='top';
+  for(let tick=0;tick<labelCount;tick++){
+    const i=Math.round(tick*(points.length-1)/(labelCount-1));
+    const point=points[i];
+    const dt=point.date?new Date(point.date):new Date(point.dt*1000);
+    const x=left+i*plotWidth/(points.length-1);
+    ctx.beginPath();ctx.moveTo(x,top+plotHeight);ctx.lineTo(x,top+plotHeight+5*ratio);ctx.strokeStyle='rgba(158,180,200,.35)';ctx.stroke();
+    ctx.fillText(dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),x,top+plotHeight+8*ratio);
+    ctx.fillText(dt.toLocaleDateString('en-GB',{weekday:'short',day:'numeric'}),x,top+plotHeight+23*ratio);
+  }
 }
 
 let searchTimer;
@@ -199,4 +244,6 @@ $('saveKeyButton').onclick=()=>{state.tideKey=$('tideKey').value.trim();localSto
 $('clearKeyButton').onclick=()=>{$('tideKey').value='';state.tideKey='';localStorage.removeItem('worldtides-key');};
 document.querySelectorAll('.tab').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.tab-panel').forEach(x=>x.hidden=true);$(`${btn.dataset.tab}Panel`).hidden=false;if(btn.dataset.tab==='tides')setTimeout(()=>renderTides(),0);});
 window.addEventListener('resize',()=>{if(state.tide)drawTideChart((state.tide.heights||[]).slice(0,96));});
+
+// Friendly default location for first launch.
 loadLocation({name:'Cowes',admin1:'England',country:'United Kingdom',latitude:50.7631,longitude:-1.2977,timezone:'Europe/London'});
