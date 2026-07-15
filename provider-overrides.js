@@ -6,18 +6,22 @@
   const val=(o,...keys)=>{for(const k of keys)if(o?.[k]!==undefined&&o?.[k]!==null)return o[k]};
   const metCode=c=>{c=Number(c);if([0,1].includes(c))return'Clear';if([2,3].includes(c))return'PartlyCloudy';if([5,6,7,8].includes(c))return'Cloudy';if([9,10,11,12].includes(c))return'Drizzle';if(c>=13&&c<=20)return'Rain';if(c>=21&&c<=27)return'Snow';if(c>=28)return'Thunderstorms';return'Cloudy'};
   const iso=x=>val(x,'time','forecastTime','forecastStart','date','validTime')||new Date().toISOString();
+  const metKey=()=>localStorage.getItem('met-office-key')||'';
+  const tideKey=()=>localStorage.getItem('worldtides-key')||'';
+
   window.loadWeather=async function(loc){
-    const r=await fetch(`/api/metoffice?lat=${encodeURIComponent(loc.latitude)}&lon=${encodeURIComponent(loc.longitude)}`),body=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(body.error||'Met Office weather is unavailable. Add MET_OFFICE_API_KEY in Vercel.');
+    const r=await fetch(`/api/metoffice?lat=${encodeURIComponent(loc.latitude)}&lon=${encodeURIComponent(loc.longitude)}`,{headers:{'x-met-office-key':metKey()}}),body=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(body.error||'Met Office weather is unavailable. Add your API key in Settings.');
     const hs=series(body.hourly),ds=series(body.daily);if(!hs.length)throw new Error('Met Office returned no hourly forecast.');
     const now=hs[0],hourly=hs.map(x=>({time:iso(x),temperature:num(x,'screenTemperature','temperature','airTemperature'),temperatureApparent:num(x,'feelsLikeTemperature','feelsLike','apparentTemperature'),conditionCode:metCode(num(x,'significantWeatherCode','weatherCode')),precipitationChance:(num(x,'probOfPrecipitation','precipitationProbability')||0)/100,precipitationAmount:num(x,'totalPrecipAmount','precipitationAmount','precipitationRate')||0,windSpeed:num(x,'windSpeed10m','windSpeed','10mWindSpeed')||0}));
     const daily=ds.map(x=>({time:iso(x),temperatureMax:num(x,'dayMaxScreenTemperature','maxScreenAirTemp','temperatureMax','maxTemperature'),temperatureMin:num(x,'nightMinScreenTemperature','minScreenAirTemp','temperatureMin','minTemperature'),conditionCode:metCode(num(x,'daySignificantWeatherCode','significantWeatherCode','weatherCode')),precipitationChance:(num(x,'dayProbabilityOfPrecipitation','probOfPrecipitation','precipitationProbability')||0)/100,uvIndexMax:num(x,'maxUvIndex','uvIndex'),sunrise:val(x,'sunrise'),sunset:val(x,'sunset')}));
     return{source:'Met Office',timezone:loc.timezone||'Europe/London',current:{temperature:num(now,'screenTemperature','temperature','airTemperature'),temperatureApparent:num(now,'feelsLikeTemperature','feelsLike','apparentTemperature'),conditionCode:metCode(num(now,'significantWeatherCode','weatherCode')),isDaylight:true,humidity:(num(now,'screenRelativeHumidity','relativeHumidity')||0)/100,pressure:num(now,'mslp','meanSeaLevelPressure'),visibility:num(now,'visibility')||0,windSpeed:num(now,'windSpeed10m','windSpeed')||0,windGust:num(now,'windGustSpeed10m','windGust')||0,windDirection:num(now,'windDirectionFrom10m','windDirection')||0,uvIndex:num(now,'uvIndex')||0,precipitationIntensity:num(now,'precipitationRate','totalPrecipAmount')||0},hourly,daily,attribution:'Weather data: Met Office DataHub'};
   };
-  window.loadTides=async function(loc){const r=await fetch('/api/tides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:loc.latitude,lon:loc.longitude})}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.error||'WorldTides data is unavailable. Add WORLD_TIDES_API_KEY in Vercel.');return{type:'WorldTides',...x}};
-  const correctLabels=()=>{const s=document.getElementById('weatherSource'),a=document.getElementById('weatherAttribution');if(s&&s.textContent==='Apple Weather')s.textContent='Met Office';if(a&&/Apple Weather/.test(a.textContent))a.textContent='Weather data: Met Office DataHub'};
-  new MutationObserver(correctLabels).observe(document.documentElement,{subtree:true,childList:true,characterData:true});correctLabels();
-  const settings=document.getElementById('settingsButton'),save=document.getElementById('saveKeyButton');
-  if(settings)settings.onclick=()=>document.getElementById('settingsDialog')?.showModal();
-  if(save)save.onclick=()=>document.getElementById('settingsDialog')?.close();
+
+  window.loadTides=async function(loc){const r=await fetch('/api/tides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:loc.latitude,lon:loc.longitude,key:tideKey()})}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.error||'WorldTides data is unavailable. Add your API key in Settings.');return{type:'WorldTides',...x}};
+
+  const settings=document.getElementById('settingsButton'),save=document.getElementById('saveKeyButton'),clear=document.getElementById('clearKeyButton'),dialog=document.getElementById('settingsDialog');
+  if(settings)settings.onclick=()=>{document.getElementById('metOfficeKey').value=metKey();document.getElementById('tideKey').value=tideKey();document.getElementById('keyStatus').textContent=`Met Office: ${metKey()?'saved':'not set'} · WorldTides: ${tideKey()?'saved':'not set'}`;dialog.showModal()};
+  if(save)save.onclick=()=>{localStorage.setItem('met-office-key',document.getElementById('metOfficeKey').value.trim());localStorage.setItem('worldtides-key',document.getElementById('tideKey').value.trim());dialog.close();if(window.state?.location)window.loadLocation(window.state.location)};
+  if(clear)clear.onclick=()=>{localStorage.removeItem('met-office-key');localStorage.removeItem('worldtides-key');document.getElementById('metOfficeKey').value='';document.getElementById('tideKey').value='';document.getElementById('keyStatus').textContent='Both keys cleared from this device.'};
 })();
