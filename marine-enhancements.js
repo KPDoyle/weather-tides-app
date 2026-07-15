@@ -87,17 +87,8 @@
   window.addEventListener('resize',()=>scheduleRedraw(120));
   document.querySelector('[data-tab="tides"]')?.addEventListener('click',()=>scheduleRedraw(80));
 
-  function useDeviceLocationByDefault(){
-    if(!navigator.geolocation || typeof loadLocation!=='function') return;
-    navigator.geolocation.getCurrentPosition(
-      pos => loadLocation({name:'Current Location',latitude:pos.coords.latitude,longitude:pos.coords.longitude,timezone:'auto'}),
-      () => {},
-      {enableHighAccuracy:true,timeout:10000,maximumAge:300000}
-    );
-  }
-
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(useDeviceLocationByDefault,250));
-  else setTimeout(useDeviceLocationByDefault,250);
+  // Geolocation is intentionally not requested during page load. Browsers are
+  // more reliable when the request follows an explicit press of Use My Location.
   setTimeout(redrawAll,1000);
   setTimeout(redrawAll,2200);
 })();
