@@ -34,18 +34,30 @@
     return selected;
   }
 
-  window.loadTides=async function(loc,marine){
-    const h=marine?.hourly;
-    const heights=(h?.time||[]).map((t,i)=>({
+  window.loadTides=async function(loc){
+    const params=new URLSearchParams({
+      latitude:String(loc.latitude),
+      longitude:String(loc.longitude),
+      hourly:'sea_level_height_msl',
+      timezone:'auto',
+      forecast_days:'7',
+      cell_selection:'sea'
+    });
+    const response=await fetch(`https://marine-api.open-meteo.com/v1/marine?${params}`);
+    if(!response.ok)return {type:'Open-Meteo marine model',heights:[],extremes:[],error:'Open-Meteo tide data unavailable.'};
+    const data=await response.json();
+    const h=data?.hourly||{};
+    const heights=(h.time||[]).map((t,i)=>({
       date:t,
       dt:new Date(t).getTime()/1000,
-      height:Number(h?.sea_level_height_msl?.[i])
+      height:Number(h.sea_level_height_msl?.[i])
     })).filter(validPoint);
     return {
       type:'Open-Meteo marine model',
       heights,
       extremes:deriveExtremes(heights),
-      datumMode:'sea level height relative to global mean sea level',
+      timezone:data.timezone,
+      datumMode:'global mean sea level',
       sourceUrl:'https://marine-api.open-meteo.com/'
     };
   };
@@ -64,14 +76,19 @@
     const meta=document.createElement('div');
     meta.id='tideModelMeta';
     meta.className='tide-model-meta';
-    meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>All tide heights and high/low estimates come from the Open-Meteo sea-level model.</span><small>Heights are relative to global mean sea level, not Chart Datum.</small>';
+    meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>All tide heights and high/low estimates come from Open-Meteo.</span><small>Reference: global mean sea level, not Chart Datum.</small>';
     card?.insertBefore(meta,canvas);
 
     const readout=document.createElement('div');
     readout.id='tideReadout';
     readout.className='tide-fixed-readout';
-    readout.textContent='Move across or tap the curve for exact time and modelled sea-level height.';
+    readout.textContent='Move across or tap the curve for exact time and Open-Meteo sea-level height.';
     canvas.insertAdjacentElement('afterend',readout);
+
+    // Keep the Tides screen itself Open-Meteo-only. ADMIRALTY remains available in Links.
+    document.querySelectorAll('#tidesPanel .card').forEach(el=>{
+      if(/OFFICIAL UKHO TIDES/i.test(el.textContent||''))el.remove();
+    });
     return canvas;
   }
 
@@ -87,28 +104,21 @@
 
     const meta=document.getElementById('tideModelMeta');
     if(meta){
-      meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>Curve, heights and high/low estimates all use sea_level_height_msl from Open-Meteo.</span><small>Values are relative to global mean sea level. Negative values can legitimately occur when modelled sea level is below that reference. This is not Chart Datum and is not for navigation.</small>';
+      meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>Curve, heights and high/low estimates all use sea_level_height_msl.</span><small>The model includes tides plus other sea-level effects and is referenced to global mean sea level. Negative values can occur below that reference. Open-Meteo states coastal accuracy is limited and this data is not suitable for coastal navigation.</small>';
     }
 
     const events=document.getElementById('tideEvents'),now=Date.now()/1000,upcoming=extremes.filter(x=>x.dt>now).slice(0,8),u=displayUnit();
     if(events){
-      events.innerHTML=upcoming.length?upcoming.map(x=>`<div class="tide-event"><div><strong>${/high/i.test(x.type)?'High':'Low'} water</strong><div class="soft">${pointDate(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${pointDate(x).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div><strong>${toDisplay(x.height).toFixed(2)} ${u}</strong></div>`).join(''):'<div class="soft">No modelled high/low events available for this point.</div>';
+      events.innerHTML=upcoming.length?upcoming.map(x=>`<div class="tide-event"><div><strong>${/high/i.test(x.type)?'High':'Low'} water</strong><div class="soft">${pointDate(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${pointDate(x).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div><strong>${toDisplay(x.height).toFixed(2)} ${u}</strong></div>`).join(''):'<div class="soft">No Open-Meteo high/low turning points available for this location.</div>';
     }
 
     const status=document.getElementById('tideChartStatus');
-    if(status)status.textContent=heights.length>1?`${heights.length} Open-Meteo height points · mean-sea-level reference`:'No Open-Meteo tide-height points available';
+    if(status)status.textContent=heights.length>1?`${heights.length} Open-Meteo height points · MSL reference`:'No Open-Meteo tide-height points available';
 
     document.querySelectorAll('#tidesPanel .navigation-warning').forEach(p=>{
-      if(/WorldTides|Environment Agency|UKHO API/i.test(p.textContent))p.textContent='Open-Meteo model forecast only. Heights are relative to global mean sea level, not Chart Datum. Not for navigation.';
+      p.textContent='Open-Meteo model forecast only. Heights are relative to global mean sea level, not Chart Datum. Not for navigation.';
     });
     window.drawTideChart();
-  };
-
-  const originalDraw=window.drawTideChart;
-  window.drawTideChart=function(activeIndex=null){
-    if(typeof originalDraw==='function')originalDraw(activeIndex);
-    const out=document.getElementById('tideReadout');
-    if(out&&out.textContent.includes('above Chart Datum'))out.textContent=out.textContent.replace('above Chart Datum','relative to mean sea level');
   };
 
   const style=document.createElement('style');
@@ -121,6 +131,9 @@
     @media(max-width:620px){.tide-fixed-toolbar{flex-direction:column}}
   `;
   document.head.appendChild(style);
+
+  const source=document.getElementById('tideSource');if(source)source.textContent='Open-Meteo';
+  const footer=document.getElementById('footerTideCredit');if(footer)footer.textContent='Tides: Open-Meteo Marine API';
 
   let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>state.chartPoints?.length&&window.drawTideChart(),120)});
 })();
