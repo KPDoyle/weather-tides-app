@@ -47,17 +47,27 @@
     if(!response.ok)return {type:'Open-Meteo marine model',heights:[],extremes:[],error:'Open-Meteo tide data unavailable.'};
     const data=await response.json();
     const h=data?.hourly||{};
-    const heights=(h.time||[]).map((t,i)=>({
+    const rawHeights=(h.time||[]).map((t,i)=>({
       date:t,
       dt:new Date(t).getTime()/1000,
       height:Number(h.sea_level_height_msl?.[i])
     })).filter(validPoint);
+
+    // Open-Meteo sea_level_height_msl is centred on mean sea level, so values can be
+    // negative. For a clearer recreational-boating display we retain Open-Meteo as the
+    // sole source but translate the entire seven-day series so its lowest forecast point
+    // is 0.00 m. This preserves tidal range, curve shape and high/low timing. It is a
+    // relative planning scale, not Chart Datum.
+    const baseline=rawHeights.length?Math.min(...rawHeights.map(p=>p.height)):0;
+    const heights=rawHeights.map(p=>({...p,height:p.height-baseline}));
+
     return {
       type:'Open-Meteo marine model',
       heights,
       extremes:deriveExtremes(heights),
       timezone:data.timezone,
-      datumMode:'global mean sea level',
+      datumMode:'relative tide height above the seven-day forecast minimum',
+      rawMslBaseline:baseline,
       sourceUrl:'https://marine-api.open-meteo.com/'
     };
   };
@@ -70,22 +80,21 @@
 
     const toolbar=document.createElement('div');
     toolbar.className='tide-fixed-toolbar';
-    toolbar.innerHTML='<strong>Open-Meteo tide curve · next 24 hours</strong><span id="tideChartStatus">Loading Open-Meteo sea-level forecast…</span>';
+    toolbar.innerHTML='<strong>Open-Meteo relative tide curve · next 24 hours</strong><span id="tideChartStatus">Loading Open-Meteo tide forecast…</span>';
     card?.insertBefore(toolbar,canvas);
 
     const meta=document.createElement('div');
     meta.id='tideModelMeta';
     meta.className='tide-model-meta';
-    meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>All tide heights and high/low estimates come from Open-Meteo.</span><small>Reference: global mean sea level, not Chart Datum.</small>';
+    meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>All tide heights and high/low estimates come from Open-Meteo.</span><small>Relative scale: lowest point in the seven-day forecast = 0.00 m.</small>';
     card?.insertBefore(meta,canvas);
 
     const readout=document.createElement('div');
     readout.id='tideReadout';
     readout.className='tide-fixed-readout';
-    readout.textContent='Move across or tap the curve for exact time and Open-Meteo sea-level height.';
+    readout.textContent='Move across or tap the curve for exact time and relative Open-Meteo tide height.';
     canvas.insertAdjacentElement('afterend',readout);
 
-    // Keep the Tides screen itself Open-Meteo-only. ADMIRALTY remains available in Links.
     document.querySelectorAll('#tidesPanel .card').forEach(el=>{
       if(/OFFICIAL UKHO TIDES/i.test(el.textContent||''))el.remove();
     });
@@ -104,7 +113,7 @@
 
     const meta=document.getElementById('tideModelMeta');
     if(meta){
-      meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>Curve, heights and high/low estimates all use sea_level_height_msl.</span><small>The model includes tides plus other sea-level effects and is referenced to global mean sea level. Negative values can occur below that reference. Open-Meteo states coastal accuracy is limited and this data is not suitable for coastal navigation.</small>';
+      meta.innerHTML='<strong>Open-Meteo Marine API</strong><span>Curve, heights and high/low estimates all come from sea_level_height_msl.</span><small>To avoid confusing negative figures, the seven-day forecast minimum is displayed as 0.00 and every value is shifted by the same amount. Tidal range and timing are unchanged. These are relative heights, not Chart Datum, and are not for navigation.</small>';
     }
 
     const events=document.getElementById('tideEvents'),now=Date.now()/1000,upcoming=extremes.filter(x=>x.dt>now).slice(0,8),u=displayUnit();
@@ -113,10 +122,10 @@
     }
 
     const status=document.getElementById('tideChartStatus');
-    if(status)status.textContent=heights.length>1?`${heights.length} Open-Meteo height points · MSL reference`:'No Open-Meteo tide-height points available';
+    if(status)status.textContent=heights.length>1?`${heights.length} Open-Meteo height points · positive relative scale`:'No Open-Meteo tide-height points available';
 
     document.querySelectorAll('#tidesPanel .navigation-warning').forEach(p=>{
-      p.textContent='Open-Meteo model forecast only. Heights are relative to global mean sea level, not Chart Datum. Not for navigation.';
+      p.textContent='Open-Meteo model forecast only. Heights use a positive relative scale with the seven-day forecast minimum set to 0.00. Not Chart Datum and not for navigation.';
     });
     window.drawTideChart();
   };
