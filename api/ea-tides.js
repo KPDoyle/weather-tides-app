@@ -22,12 +22,16 @@ export default async function handler(req,res){
   if(!Number.isFinite(lat)||!Number.isFinite(lon))return res.status(400).json({error:'Valid latitude and longitude are required.'});
 
   try{
-    const stationsUrl=`${EA_ROOT}/id/stations?type=TideGauge&unitName=mAOD&_view=full&_limit=100`;
+    // Use the local-datum version of each tide gauge. The EA publishes the same
+    // physical tide-gauge observations both as local-datum metres (m) and mAOD.
+    // Local datum is easier for a boating display because the values are normally
+    // positive, while mAOD may legitimately be negative around low water.
+    const stationsUrl=`${EA_ROOT}/id/stations?type=TideGauge&unitName=m&_view=full&_limit=100`;
     const stationsResponse=await fetch(stationsUrl,{headers:{Accept:'application/json'}});
     if(!stationsResponse.ok)throw new Error(`Environment Agency station request failed (${stationsResponse.status})`);
     const stationsData=await stationsResponse.json();
     const stations=(stationsData.items||[]).filter(s=>Number.isFinite(Number(s.lat))&&Number.isFinite(Number(s.long)));
-    if(!stations.length)throw new Error('No Environment Agency tide gauges were returned.');
+    if(!stations.length)throw new Error('No Environment Agency local-datum tide gauges were returned.');
 
     let nearest=null,distanceKm=Infinity;
     for(const station of stations){
@@ -41,14 +45,17 @@ export default async function handler(req,res){
     const measuresResponse=await fetch(`${EA_ROOT}/id/stations/${encodeURIComponent(id)}/measures`,{headers:{Accept:'application/json'}});
     const measuresData=measuresResponse.ok?await measuresResponse.json():{items:[]};
     const measures=measuresData.items||[];
-    const measure=measures.find(m=>m.unitName==='mAOD')||measures[0]||null;
+    const measure=measures.find(m=>m.unitName==='m')||measures[0]||null;
 
-    const readingsResponse=await fetch(`${EA_ROOT}/id/stations/${encodeURIComponent(id)}/readings?_sorted&_limit=100`,{headers:{Accept:'application/json'}});
-    const readingsData=readingsResponse.ok?await readingsResponse.json():{items:[]};
-    const readings=(readingsData.items||[])
-      .filter(r=>Number.isFinite(Number(r.value))&&r.dateTime)
-      .map(r=>({dateTime:r.dateTime,value:Number(r.value)}))
-      .sort((a,b)=>new Date(a.dateTime)-new Date(b.dateTime));
+    let readings=[];
+    if(measure?.['@id']){
+      const readingsResponse=await fetch(`${measure['@id']}/readings?_sorted&_limit=100`,{headers:{Accept:'application/json'}});
+      const readingsData=readingsResponse.ok?await readingsResponse.json():{items:[]};
+      readings=(readingsData.items||[])
+        .filter(r=>Number.isFinite(Number(r.value))&&r.dateTime)
+        .map(r=>({dateTime:r.dateTime,value:Number(r.value)}))
+        .sort((a,b)=>new Date(a.dateTime)-new Date(b.dateTime));
+    }
 
     const latest=measure?.latestReading&&Number.isFinite(Number(measure.latestReading.value))
       ? {dateTime:measure.latestReading.dateTime,value:Number(measure.latestReading.value)}
@@ -67,8 +74,8 @@ export default async function handler(req,res){
         town:nearest.town||'',
         riverName:nearest.riverName||''
       },
-      unit:measure?.unitName||'mAOD',
-      datum:'Ordnance Datum Newlyn',
+      unit:'m',
+      datum:'local tide-gauge datum',
       latest,
       readings,
       attribution:'This uses Environment Agency tide gauge data from the real-time data API (Beta).',
