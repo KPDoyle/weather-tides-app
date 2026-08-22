@@ -32,11 +32,11 @@
       return;
     }
 
-    const points=sourcePoints.map(p=>({...p,displayHeight:displayHeight(p.height)}));
+    const points=sourcePoints.map(p=>({...p,displayHeight:Math.max(0,displayHeight(p.height))}));
     const L=76,R=28,T=34,B=118,W=cssWidth-L-R,H=cssHeight-T-B;
     const t0=pointDate(points[0]).getTime(),t1=pointDate(points[points.length-1]).getTime(),span=t1-t0||1;
     const values=points.map(p=>p.displayHeight),min=Math.min(...values),max=Math.max(...values);
-    const padding=Math.max(.05,(max-min)*.08),lo=min-padding,hi=max+padding,range=hi-lo||1;
+    const padding=Math.max(.05,(max-min)*.08),lo=Math.max(0,min-padding),hi=max+padding,range=hi-lo||1;
     const xy=points.map(p=>({x:L+(pointDate(p).getTime()-t0)*W/span,y:T+H-(p.displayHeight-lo)*H/range,p}));
 
     ctx.lineWidth=1;ctx.font='12px -apple-system,system-ui,sans-serif';
@@ -44,7 +44,7 @@
       const y=T+i*H/5,val=hi-i*range/5;
       ctx.strokeStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(cssWidth-R,y);ctx.stroke();
       ctx.fillStyle='rgba(255,255,255,.72)';ctx.textAlign='right';ctx.textBaseline='middle';
-      ctx.fillText(`${val.toFixed(2)} ${unit()}`,L-10,y);
+      ctx.fillText(`${Math.max(0,val).toFixed(2)} ${unit()}`,L-10,y);
     }
 
     const tickHours=cssWidth<520?4:cssWidth<780?3:2;
@@ -87,7 +87,7 @@
       ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.x,T);ctx.lineTo(q.x,T+H);ctx.stroke();
       ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(q.x,q.y,5,0,Math.PI*2);ctx.fill();
       const out=document.getElementById('tideReadout');
-      if(out)out.textContent=`${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${q.p.displayHeight.toFixed(2)} ${unit()} relative to mean sea level`;
+      if(out)out.textContent=`${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${q.p.displayHeight.toFixed(2)} ${unit()} above forecast minimum`;
     }
 
     canvas.onpointermove=e=>{
