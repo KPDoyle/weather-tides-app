@@ -45,19 +45,55 @@
     }
   }
 
+  function applyPositiveLocalDatum(rawHeights,liveGauge){
+    const heights=normalise(rawHeights);
+    if(!heights.length)return {heights,datumMode:'No tide datum available',offset:0};
+
+    // For UK locations, anchor the model to the nearest Environment Agency gauge's
+    // observed local-datum level. This preserves the forecast curve shape while
+    // presenting familiar positive tide heights. It is an approximation, not Chart Datum.
+    if(liveGauge?.latest&&Number.isFinite(Number(liveGauge.latest.value))){
+      const observedTime=new Date(liveGauge.latest.dateTime).getTime();
+      const observed=state.units==='metric'?Number(liveGauge.latest.value):Number(liveGauge.latest.value)*3.28084;
+      let anchor=heights[0],diff=Infinity;
+      heights.forEach(p=>{const d=Math.abs(pointDate(p).getTime()-observedTime);if(d<diff){diff=d;anchor=p;}});
+      if(anchor&&diff<=2*3600000){
+        const offset=observed-anchor.height;
+        return {
+          heights:heights.map(p=>({...p,height:p.height+offset})),
+          datumMode:`estimated local datum anchored to ${liveGauge.station?.label||'EA tide gauge'}`,
+          offset
+        };
+      }
+    }
+
+    // Outside EA coverage, use a relative local model baseline so tide values remain
+    // positive and intuitive. This is deliberately labelled as relative, not Chart Datum.
+    const min=Math.min(...heights.map(p=>p.height));
+    const offset=min<0?-min:0;
+    return {
+      heights:heights.map(p=>({...p,height:p.height+offset})),
+      datumMode:'relative local model baseline',
+      offset
+    };
+  }
+
   window.loadTides=async function(loc,marine){
     const h=marine?.hourly;
-    const heights=(h?.time||[]).map((t,i)=>({
+    const rawHeights=(h?.time||[]).map((t,i)=>({
       date:t,
       dt:new Date(t).getTime()/1000,
       height:Number(h?.sea_level_height_msl?.[i])
     })).filter(validPoint);
-    const [liveGauge]=await Promise.all([loadLiveGauge(loc)]);
+    const liveGauge=await loadLiveGauge(loc);
+    const adjusted=applyPositiveLocalDatum(rawHeights,liveGauge);
     return {
       type:'Open-Meteo tide model',
-      heights,
-      extremes:deriveExtremes(heights),
+      heights:adjusted.heights,
+      extremes:deriveExtremes(adjusted.heights),
       liveGauge,
+      datumMode:adjusted.datumMode,
+      datumOffset:adjusted.offset,
       officialUrl:'https://easytide.admiralty.co.uk/'
     };
   };
@@ -70,19 +106,19 @@
 
     const toolbar=document.createElement('div');
     toolbar.className='tide-fixed-toolbar';
-    toolbar.innerHTML='<strong>Model tide forecast · next 24 hours</strong><span id="tideChartStatus">Loading tide forecast…</span>';
+    toolbar.innerHTML='<strong>Estimated local tide height · next 24 hours</strong><span id="tideChartStatus">Loading tide forecast…</span>';
     card?.insertBefore(toolbar,canvas);
 
     const meta=document.createElement('div');
     meta.id='tideModelMeta';
     meta.className='tide-model-meta';
-    meta.innerHTML='<strong>Open-Meteo sea-level model</strong><span>Forecast tide curve for the selected coastal location.</span><small>Modelled sea-level height; coastal accuracy is limited and this is not for navigation.</small>';
+    meta.innerHTML='<strong>Open-Meteo tide model</strong><span>Forecast tide curve for the selected coastal location.</span><small>Loading local datum information…</small>';
     card?.insertBefore(meta,canvas);
 
     const readout=document.createElement('div');
     readout.id='tideReadout';
     readout.className='tide-fixed-readout';
-    readout.textContent='Move across or tap the curve for exact time and modelled height.';
+    readout.textContent='Move across or tap the curve for exact time and estimated local tide height.';
     canvas.insertAdjacentElement('afterend',readout);
 
     const live=document.createElement('div');
@@ -106,8 +142,8 @@
     const d=new Date(gauge.latest.dateTime);
     box.innerHTML=`
       <div class="ea-live-head"><div><small>LIVE UK WATER LEVEL</small><strong>${gauge.station.label}</strong><span>${gauge.station.distanceKm} km from selected location · Environment Agency</span></div><div class="ea-live-value"><strong>${shown.toFixed(2)} ${shownUnit}</strong><span>above local gauge datum</span></div></div>
-      <div class="ea-live-foot"><span>Observed ${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span><span>Updated approximately every 15 minutes</span></div>
-      <small class="ea-datum-note">This is an observed water level above the Environment Agency gauge's local datum. It is not Chart Datum and should not be directly compared with the Open-Meteo model height.</small>`;
+      <div class="ea-live-foot"><span>Observed ${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span><span>Typically updated every 15 minutes</span></div>
+      <small class="ea-datum-note">Observed level uses the Environment Agency gauge's local datum. It is not official Chart Datum.</small>`;
   }
 
   window.renderTides=function(){
@@ -117,17 +153,27 @@
     state.chartPoints=heights;
 
     const source=document.getElementById('tideSource'),footer=document.getElementById('footerTideCredit');
-    if(source)source.textContent='Open-Meteo model';
+    if(source)source.textContent=tide.liveGauge?'Open-Meteo + EA':'Open-Meteo model';
     if(footer)footer.textContent='Tides: Open-Meteo model · Live levels: Environment Agency';
+
+    const meta=document.getElementById('tideModelMeta');
+    if(meta){
+      const datum=tide.datumMode||'relative model baseline';
+      meta.innerHTML=`<strong>Open-Meteo tide model</strong><span>Estimated tide heights using ${datum}.</span><small>These positive heights are a planning aid. They are not official Chart Datum or navigational predictions; use ADMIRALTY EasyTide for the official UKHO check.</small>`;
+    }
 
     const events=document.getElementById('tideEvents'),now=Date.now()/1000,upcoming=extremes.filter(x=>x.dt>now).slice(0,8),u=displayUnit();
     if(events){
-      events.innerHTML=upcoming.length?upcoming.map(x=>`<div class="tide-event"><div><strong>${/high/i.test(x.type)?'High':'Low'} water</strong><div class="soft">${pointDate(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${pointDate(x).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div><strong>${x.height.toFixed(2)} ${u}</strong></div>`).join(''):'<div class="soft">No modelled high/low events available for this point.</div>';
+      events.innerHTML=upcoming.length?upcoming.map(x=>`<div class="tide-event"><div><strong>${/high/i.test(x.type)?'High':'Low'} water</strong><div class="soft">${pointDate(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${pointDate(x).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div><strong>${Math.max(0,x.height).toFixed(2)} ${u}</strong></div>`).join(''):'<div class="soft">No modelled high/low events available for this point.</div>';
     }
 
     const status=document.getElementById('tideChartStatus');
-    if(status)status.textContent=heights.length>1?`${heights.length} model height points · ${u}`:'No model tide-height points available';
+    if(status)status.textContent=heights.length>1?`${heights.length} model height points · positive local scale`:'No model tide-height points available';
     renderLiveGauge(tide.liveGauge);
+
+    document.querySelectorAll('#tidesPanel .navigation-warning').forEach(p=>{
+      if(p.textContent.includes('WorldTides'))p.textContent=p.textContent.replace('WorldTides','Open-Meteo model');
+    });
     window.drawTideChart();
   };
 
