@@ -1,102 +1,71 @@
-(() => {
-  const pointDate=p=>p?.date?new Date(p.date):new Date(Number(p?.dt)*1000);
-  const valid=p=>Number.isFinite(Number(p?.height))&&Number.isFinite(pointDate(p).getTime());
-  const unit=()=>state.units==='metric'?'m':'ft';
-  const displayHeight=v=>state.units==='metric'?Number(v):Number(v)*3.28084;
+(()=>{
+  const qs=o=>new URLSearchParams(Object.entries(o).filter(([,v])=>v!==undefined&&v!==null&&v!=='')).toString();
+  const cleanupScripts=()=>document.querySelectorAll('script[data-tides-today]').forEach(s=>s.remove());
+  const loadScript=src=>new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.async=false;s.dataset.tidesToday='true';s.onload=resolve;s.onerror=()=>reject(new Error(`Unable to load ${src}`));document.body.appendChild(s)});
 
-  function smooth(ctx,xy){
-    if(!xy.length)return;
-    ctx.moveTo(xy[0].x,xy[0].y);
-    for(let i=1;i<xy.length-1;i++){
-      const q=xy[i],n=xy[i+1];
-      ctx.quadraticCurveTo(q.x,q.y,(q.x+n.x)/2,(q.y+n.y)/2);
+  window.loadTides=async function(loc){
+    const params={name:loc.name,admin1:loc.admin1,admin2:loc.admin2,country:loc.country,country_code:loc.country_code,lat:loc.latitude,lon:loc.longitude};
+    try{
+      const r=await fetch(`/api/tides-today-resolver?${qs(params)}`);
+      const data=await r.json();
+      if(!r.ok)throw new Error(data.error||'Tides Today station unavailable.');
+      return {type:'Tides Today',...data};
+    }catch(error){
+      return {type:'Tides Today',error:error.message||'Tides Today station unavailable.',searchUrl:'https://tides.today/en'};
     }
-    const last=xy[xy.length-1];
-    ctx.lineTo(last.x,last.y);
+  };
+
+  function ensureCard(){
+    const panel=document.getElementById('tidesPanel');if(!panel)return null;
+    panel.querySelector('.two-col')?.setAttribute('hidden','');
+    [...panel.querySelectorAll('.card')].forEach(card=>{if(/OFFICIAL UKHO TIDES/i.test(card.textContent||''))card.setAttribute('hidden','')});
+    let card=document.getElementById('tidesTodayCard');
+    if(!card){
+      card=document.createElement('article');card.id='tidesTodayCard';card.className='glass card tides-today-card';
+      card.innerHTML=`<div class="card-head"><span>TIDE TIMES & HEIGHTS</span><small id="tidesTodaySource">Tides Today</small></div>
+        <div id="tidesTodayStation" class="tides-today-station"></div>
+        <div id="tidesTodayWidgetHost" class="tides-today-host"><div class="soft">Loading tide chart…</div></div>
+        <div class="tides-today-actions"><a id="tidesTodayOpen" class="primary-btn" target="_blank" rel="noopener">Open on Tides Today</a><a class="pill-btn" href="https://easytide.admiralty.co.uk" target="_blank" rel="noopener">UKHO EasyTide check</a></div>
+        <p class="navigation-warning">Tide information is supplied by the embedded Tides Today service. For UK locations, source licensing and attribution are shown by Tides Today. Planning aid only; verify navigational information independently.</p>`;
+      panel.prepend(card);
+    }
+    return card;
   }
 
-  window.drawTideChart=function(activeIndex=null){
-    const canvas=document.getElementById('tideChart');if(!canvas)return;
-    const rect=canvas.getBoundingClientRect();
-    const cssWidth=Math.max(320,Math.round(rect.width||canvas.parentElement?.clientWidth||900));
-    const cssHeight=480,ratio=Math.max(1,window.devicePixelRatio||1);
-    canvas.style.width='100%';canvas.style.height=`${cssHeight}px`;
-    canvas.width=Math.round(cssWidth*ratio);canvas.height=Math.round(cssHeight*ratio);
-    const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,cssWidth,cssHeight);
-
-    const sourcePoints=(state.chartPoints||[]).filter(valid);
-    if(sourcePoints.length<2){
-      ctx.fillStyle='rgba(255,255,255,.9)';
-      ctx.font='600 16px -apple-system,system-ui,sans-serif';
-      ctx.fillText('No Open-Meteo tide-height series is available.',24,48);
+  async function mountWidget(tide){
+    const host=document.getElementById('tidesTodayWidgetHost');if(!host)return;
+    cleanupScripts();host.innerHTML='';
+    if(tide.error||!tide.path||!tide.id){
+      host.innerHTML=`<div class="tides-today-error"><strong>Tide station unavailable</strong><span>${tide.error||'No Tides Today station could be resolved for this location.'}</span><a class="primary-btn" href="${tide.searchUrl||'https://tides.today/en'}" target="_blank" rel="noopener">Search Tides Today</a></div>`;
       return;
     }
-
-    const points=sourcePoints.map(p=>({...p,displayHeight:Math.max(0,displayHeight(p.height))}));
-    const L=76,R=28,T=34,B=118,W=cssWidth-L-R,H=cssHeight-T-B;
-    const t0=pointDate(points[0]).getTime(),t1=pointDate(points[points.length-1]).getTime(),span=t1-t0||1;
-    const values=points.map(p=>p.displayHeight),min=Math.min(...values),max=Math.max(...values);
-    const padding=Math.max(.05,(max-min)*.08),lo=Math.max(0,min-padding),hi=max+padding,range=hi-lo||1;
-    const xy=points.map(p=>({x:L+(pointDate(p).getTime()-t0)*W/span,y:T+H-(p.displayHeight-lo)*H/range,p}));
-
-    ctx.lineWidth=1;ctx.font='12px -apple-system,system-ui,sans-serif';
-    for(let i=0;i<6;i++){
-      const y=T+i*H/5,val=hi-i*range/5;
-      ctx.strokeStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(cssWidth-R,y);ctx.stroke();
-      ctx.fillStyle='rgba(255,255,255,.72)';ctx.textAlign='right';ctx.textBaseline='middle';
-      ctx.fillText(`${Math.max(0,val).toFixed(2)} ${unit()}`,L-10,y);
+    const target=document.createElement('div');target.id=`tidewidget__${tide.id}`;host.appendChild(target);
+    const heightUnit=state.units==='metric'?'m':'ft';
+    const base=`https://api.tidestoday.io/widgets-api/js-v1/en/${tide.path}`;
+    const init=`${base}/widget-init.js?${qs({includeMap:'false',includeWeather:'false',includeStyles:'true',includeTitle:'true',numberDays:'3',weatherUnit:'c',heightUnit})}`;
+    try{
+      await loadScript(`${base}/widget.js`);
+      await loadScript(init);
+    }catch(error){
+      host.innerHTML=`<div class="tides-today-error"><strong>Unable to load tide widget</strong><span>${error.message}</span><a class="primary-btn" href="${tide.pageUrl}" target="_blank" rel="noopener">Open Tides Today</a></div>`;
     }
+  }
 
-    const tickHours=cssWidth<520?4:cssWidth<780?3:2;
-    const firstTick=Math.ceil(t0/(tickHours*3600000))*(tickHours*3600000);
-    for(let ts=firstTick;ts<=t1;ts+=tickHours*3600000){
-      const x=L+(ts-t0)*W/span;if(x-L<58||cssWidth-R-x<58)continue;
-      const d=new Date(ts);
-      ctx.strokeStyle='rgba(255,255,255,.11)';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+H);ctx.stroke();
-      ctx.fillStyle='rgba(255,255,255,.92)';ctx.textAlign='center';ctx.textBaseline='top';ctx.font='700 12px -apple-system,system-ui,sans-serif';
-      ctx.fillText(d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),x,T+H+12);
-      if(d.getHours()===0){
-        ctx.fillStyle='rgba(94,231,231,.95)';ctx.font='700 11px -apple-system,system-ui,sans-serif';
-        ctx.fillText(d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),x,T+H+34);
-      }
-    }
-
-    ctx.strokeStyle='rgba(94,231,231,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(L,T);ctx.lineTo(L,T+H);ctx.stroke();
-    ctx.fillStyle='#5ee7e7';ctx.textAlign='left';ctx.textBaseline='top';ctx.font='700 12px -apple-system,system-ui,sans-serif';ctx.fillText('NOW',L+6,T+5);
-
-    const start=new Date(t0),end=new Date(t1);
-    ctx.fillStyle='rgba(255,255,255,.96)';ctx.font='700 12px -apple-system,system-ui,sans-serif';ctx.textAlign='left';
-    ctx.fillText(start.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),L,T+H+62);
-    ctx.fillStyle='rgba(255,255,255,.64)';ctx.font='11px -apple-system,system-ui,sans-serif';
-    ctx.fillText(start.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),L,T+H+80);
-    ctx.textAlign='right';ctx.fillStyle='rgba(255,255,255,.96)';ctx.font='700 12px -apple-system,system-ui,sans-serif';
-    ctx.fillText(end.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),cssWidth-R,T+H+62);
-    ctx.fillStyle='rgba(255,255,255,.64)';ctx.font='11px -apple-system,system-ui,sans-serif';
-    ctx.fillText(end.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),cssWidth-R,T+H+80);
-
-    const fill=ctx.createLinearGradient(0,T,0,T+H);fill.addColorStop(0,'rgba(255,255,255,.35)');fill.addColorStop(1,'rgba(255,255,255,.03)');
-    ctx.beginPath();ctx.moveTo(xy[0].x,T+H);ctx.lineTo(xy[0].x,xy[0].y);
-    for(let i=1;i<xy.length-1;i++){
-      const q=xy[i],n=xy[i+1];ctx.quadraticCurveTo(q.x,q.y,(q.x+n.x)/2,(q.y+n.y)/2);
-    }
-    ctx.lineTo(xy[xy.length-1].x,xy[xy.length-1].y);ctx.lineTo(xy[xy.length-1].x,T+H);ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    ctx.beginPath();smooth(ctx,xy);ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
-
-    if(Number.isInteger(activeIndex)&&xy[activeIndex]){
-      const q=xy[activeIndex],d=pointDate(q.p);
-      ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.x,T);ctx.lineTo(q.x,T+H);ctx.stroke();
-      ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(q.x,q.y,5,0,Math.PI*2);ctx.fill();
-      const out=document.getElementById('tideReadout');
-      if(out)out.textContent=`${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${q.p.displayHeight.toFixed(2)} ${unit()} above forecast minimum`;
-    }
-
-    canvas.onpointermove=e=>{
-      const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,target=t0+Math.max(0,Math.min(1,(x-L)/W))*span;
-      let best=0,diff=Infinity;
-      points.forEach((p,i)=>{const v=Math.abs(pointDate(p).getTime()-target);if(v<diff){diff=v;best=i}});
-      window.drawTideChart(best);
-    };
-    canvas.onpointerleave=()=>window.drawTideChart();
-    canvas.onclick=e=>canvas.onpointermove(e);
+  window.renderTides=function(){
+    const tide=state.tide||{type:'Tides Today',error:'Tide station unavailable.'};ensureCard();
+    const station=document.getElementById('tidesTodayStation'),source=document.getElementById('tidesTodaySource'),open=document.getElementById('tidesTodayOpen'),footer=document.getElementById('footerTideCredit');
+    const place=tide.name||state.location?.name||'Selected location';
+    if(station)station.innerHTML=`<div><strong>${place}</strong><span>${tide.match==='nearest'&&Number.isFinite(Number(tide.distanceKm))?`Nearest supported station · ${Number(tide.distanceKm).toFixed(1)} km away`:'Matched Tides Today station'}</span></div><small>Chart Datum heights where provided by the source</small>`;
+    if(source)source.textContent='Tides Today';
+    if(open){open.href=tide.pageUrl||tide.searchUrl||'https://tides.today/en';open.textContent=`Open ${place} on Tides Today`;}
+    if(footer)footer.textContent='Tides: Tides Today · Marine forecast: Open-Meteo';
+    const oldSource=document.getElementById('tideSource');if(oldSource)oldSource.textContent='Tides Today';
+    mountWidget(tide);
   };
+
+  const style=document.createElement('style');style.textContent=`
+    .tides-today-card{overflow:visible}.tides-today-station{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin:2px 0 14px;padding:13px 14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.05)}
+    .tides-today-station>div{display:grid;gap:3px}.tides-today-station span,.tides-today-station small{opacity:.72;font-size:12px}.tides-today-host{min-height:300px;background:#fff;border-radius:16px;overflow:hidden;color:#0d2238;padding:8px}.tides-today-host>*{max-width:100%}.tides-today-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.tides-today-error{min-height:220px;display:grid;place-content:center;justify-items:center;gap:12px;text-align:center;padding:24px;color:#16324c}.tides-today-error span{max-width:520px;color:#597080}
+    @media(max-width:620px){.tides-today-station{flex-direction:column}.tides-today-host{padding:4px;border-radius:12px}.tides-today-actions>*{width:100%;text-align:center}}
+  `;document.head.appendChild(style);
 })();
