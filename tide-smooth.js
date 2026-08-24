@@ -1,79 +1,83 @@
 (()=>{
-  const fmtHeight=v=>state.units==='metric'?`${Number(v).toFixed(2)} m`:`${(Number(v)*3.28084).toFixed(2)} ft`;
-  const eventLabel=t=>/high/i.test(t||'')?'High water':/low/i.test(t||'')?'Low water':String(t||'Tidal event');
-  const eventDate=e=>new Date(`${e.dateTime}${/[zZ]|[+-]\d\d:?\d\d$/.test(e.dateTime)?'':'Z'}`);
+  const pointDate=p=>p?.date?new Date(p.date):new Date(Number(p?.dt)*1000);
+  const valid=p=>Number.isFinite(Number(p?.height))&&Number.isFinite(pointDate(p).getTime());
+  const unit=()=>state.units==='metric'?'m':'ft';
+  const displayHeight=v=>state.units==='metric'?Number(v):Number(v)*3.28084;
+  const normalise=items=>(items||[]).map(p=>({date:p.date||new Date(Number(p.dt)*1000).toISOString(),dt:Number(p.dt)||new Date(p.date).getTime()/1000,height:Number(p.height),type:p.type||''})).filter(valid).sort((a,b)=>a.dt-b.dt);
+
+  function extremes(points){
+    const p=normalise(points),out=[];
+    for(let i=1;i<p.length-1;i++){
+      const a=p[i-1].height,b=p[i].height,c=p[i+1].height;
+      if(b>a&&b>c)out.push({...p[i],type:'High'});
+      if(b<a&&b<c)out.push({...p[i],type:'Low'});
+    }
+    return out;
+  }
+
+  function positiveScale(points){
+    const p=normalise(points);if(!p.length)return {points:p,offset:0};
+    const min=Math.min(...p.map(x=>x.height));
+    const offset=min<0?-min:0;
+    return {points:p.map(x=>({...x,height:x.height+offset})),offset};
+  }
+
+  function next24(items){
+    const p=normalise(items),now=Date.now(),end=now+24*3600000;if(p.length<2)return p;
+    let i=p.findIndex(x=>pointDate(x).getTime()>=now);if(i<0)return p.slice(-2);
+    const selected=p.slice(i).filter(x=>pointDate(x).getTime()<=end),a=p[Math.max(0,i-1)],b=p[i];
+    if(a&&b&&pointDate(a).getTime()<now){const at=pointDate(a).getTime(),bt=pointDate(b).getTime(),f=Math.max(0,Math.min(1,(now-at)/(bt-at||1)));selected.unshift({date:new Date(now).toISOString(),dt:now/1000,height:a.height+(b.height-a.height)*f,type:'Now'});}
+    return selected;
+  }
 
   window.loadTides=async function(loc){
-    const q=new URLSearchParams({lat:String(loc.latitude),lon:String(loc.longitude),duration:'7'});
+    const q=new URLSearchParams({latitude:String(loc.latitude),longitude:String(loc.longitude),hourly:'sea_level_height_msl',timezone:'auto',forecast_days:'7',cell_selection:'sea'});
     try{
-      const r=await fetch(`/api/ukho-tides?${q}`);
-      const data=await r.json();
-      if(!r.ok)throw Object.assign(new Error(data.error||'ADMIRALTY tidal data unavailable.'),{data});
-      return {type:'ADMIRALTY UK Tidal API',...data};
-    }catch(error){
-      const d=error.data||{};
-      return {type:'ADMIRALTY UK Tidal API',configured:d.configured!==false,error:error.message,easyTideUrl:d.easyTideUrl||'https://easytide.admiralty.co.uk/',station:d.station};
-    }
+      const r=await fetch(`https://marine-api.open-meteo.com/v1/marine?${q}`);
+      if(!r.ok)throw new Error('Open-Meteo tide data unavailable.');
+      const data=await r.json(),h=data?.hourly||{};
+      const raw=(h.time||[]).map((t,i)=>({date:t,dt:new Date(t).getTime()/1000,height:Number(h.sea_level_height_msl?.[i])})).filter(valid);
+      const adjusted=positiveScale(raw);
+      return {type:'Open-Meteo Marine API',heights:adjusted.points,extremes:extremes(adjusted.points),offset:adjusted.offset,timezone:data.timezone,datumMode:'relative local tide scale'};
+    }catch(error){return {type:'Open-Meteo Marine API',heights:[],extremes:[],error:error.message};}
   };
 
-  function ensureUkhoCard(){
-    const panel=document.getElementById('tidesPanel');if(!panel)return null;
-    panel.querySelector('.two-col')?.setAttribute('hidden','');
-    [...panel.querySelectorAll('.card')].forEach(card=>{if(card.id!=='ukhoTideCard'&&/OFFICIAL UKHO TIDES/i.test(card.textContent||''))card.setAttribute('hidden','')});
-    document.getElementById('tidesTodayCard')?.remove();
-    let card=document.getElementById('ukhoTideCard');
-    if(!card){
-      card=document.createElement('article');card.id='ukhoTideCard';card.className='glass card ukho-tide-card';
-      card.innerHTML=`<div class="card-head"><span>ADMIRALTY TIDE TIMES</span><small id="ukhoTideSource">UKHO</small></div>
-        <div id="ukhoStation" class="ukho-station"></div>
-        <div id="ukhoEvents" class="tide-events ukho-events"></div>
-        <div id="ukhoStatus" class="ukho-status"></div>
-        <div class="ukho-actions"><a id="ukhoEasyTide" class="primary-btn" target="_blank" rel="noopener">Open official EasyTide curve</a></div>
-        <div class="ukho-attribution">Contains ADMIRALTY® tidal data:<br>© Crown Copyright and database right.</div>
-        <p class="navigation-warning">Official UKHO tidal predictions. Heights are above Chart Datum and API times are GMT. EasyTide must not be used by vessels for navigation.</p>`;
-      panel.prepend(card);
-    }
-    return card;
+  function ensureLayout(){
+    const panel=document.getElementById('tidesPanel'),canvas=document.getElementById('tideChart');if(!panel||!canvas)return canvas;
+    panel.querySelector('.two-col')?.removeAttribute('hidden');
+    document.getElementById('ukhoTideCard')?.remove();document.getElementById('tidesTodayCard')?.remove();
+    [...panel.querySelectorAll('.card')].forEach(card=>{if(/OFFICIAL UKHO TIDES/i.test(card.textContent||''))card.setAttribute('hidden','')});
+    const cards=panel.querySelectorAll('.two-col .card');
+    if(cards[0]){const t=cards[0].querySelector('.card-head span');if(t)t.textContent='24-HOUR TIDE HEIGHT';}
+    if(cards[1]){const t=cards[1].querySelector('.card-head span');if(t)t.textContent='HIGH & LOW WATER';}
+    return canvas;
   }
 
   window.renderTides=function(){
-    const tide=state.tide||{configured:false,easyTideUrl:'https://easytide.admiralty.co.uk/'};
-    ensureUkhoCard();
-    const station=document.getElementById('ukhoStation'),eventsBox=document.getElementById('ukhoEvents'),status=document.getElementById('ukhoStatus'),link=document.getElementById('ukhoEasyTide'),source=document.getElementById('ukhoTideSource'),footer=document.getElementById('footerTideCredit');
-    if(source)source.textContent='ADMIRALTY / UKHO';
-    if(footer)footer.textContent='Tides: ADMIRALTY UK Tidal API · UKHO EasyTide';
-    const oldSource=document.getElementById('tideSource');if(oldSource)oldSource.textContent='UKHO';
-    if(link)link.href=tide.easyTideUrl||'https://easytide.admiralty.co.uk/';
-
-    if(tide.station){
-      station.innerHTML=`<div><strong>${tide.station.name}</strong><span>Nearest UKHO tidal station · ${Number(tide.station.distanceKm||0).toFixed(1)} km away</span></div><small>Station ${tide.station.id} · Chart Datum</small>`;
-    }else{
-      station.innerHTML='<div><strong>ADMIRALTY EasyTide</strong><span>Official UKHO tidal source</span></div><small>Chart Datum</small>';
-    }
-
-    if(tide.configured===false){
-      eventsBox.innerHTML='';
-      status.innerHTML='<div class="ukho-connect"><strong>UKHO API connection required</strong><span>The app is now UKHO-only for tides. Add an ADMIRALTY UK Tidal API subscription key in Vercel to display high/low times and heights directly in the app.</span></div>';
-      if(link)link.textContent='Open EasyTide for tide times & curve';
-      return;
-    }
-
-    if(tide.error){
-      eventsBox.innerHTML='';
-      status.innerHTML=`<div class="ukho-connect"><strong>UKHO data temporarily unavailable</strong><span>${tide.error}</span></div>`;
-      if(link)link.textContent='Open EasyTide';
-      return;
-    }
-
-    status.innerHTML='';
-    const now=Date.now(),events=(tide.events||[]).map(e=>({...e,_date:eventDate(e)})).filter(e=>Number.isFinite(e._date.getTime())&&e._date.getTime()>now).slice(0,12);
-    eventsBox.innerHTML=events.length?events.map(e=>`<div class="tide-event"><div><strong>${eventLabel(e.eventType)}</strong><div class="soft">${e._date.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'})} · ${e._date.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'UTC'})} GMT</div></div><strong>${fmtHeight(e.height)}</strong></div>`).join(''):'<div class="soft">No upcoming UKHO tidal events returned.</div>';
-    if(link)link.textContent=`Open ${tide.station?.name||'station'} in EasyTide`;
+    const tide=state.tide||{type:'Open-Meteo Marine API',heights:[],extremes:[]};ensureLayout();
+    const heights=next24(tide.heights),events=normalise(tide.extremes).filter(x=>x.dt>Date.now()/1000).slice(0,8);state.chartPoints=heights;
+    const source=document.getElementById('tideSource'),footer=document.getElementById('footerTideCredit');
+    if(source)source.textContent='Open-Meteo';if(footer)footer.textContent='Tides: Open-Meteo Marine API';
+    const box=document.getElementById('tideEvents');
+    if(box)box.innerHTML=events.length?events.map(x=>`<div class="tide-event"><div><strong>${/high/i.test(x.type)?'High':'Low'} water</strong><div class="soft">${pointDate(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} · ${pointDate(x).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div><strong>${displayHeight(x.height).toFixed(2)} ${unit()}</strong></div>`).join(''):`<div class="soft">${tide.error||'No Open-Meteo high/low events available.'}</div>`;
+    document.querySelectorAll('#tidesPanel .navigation-warning').forEach(p=>{if(!p.closest('[hidden]'))p.textContent='Open-Meteo marine model. Heights use a positive relative tide scale derived from sea_level_height_msl; they are not Chart Datum. Not for navigation.'});
+    window.drawTideChart();
   };
 
-  const style=document.createElement('style');style.textContent=`
-    .ukho-tide-card{overflow:visible}.ukho-station{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin:2px 0 14px;padding:13px 14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.05)}
-    .ukho-station>div{display:grid;gap:3px}.ukho-station span,.ukho-station small{opacity:.72;font-size:12px}.ukho-events{display:grid;gap:8px}.ukho-status{margin-top:12px}.ukho-connect{display:grid;gap:6px;padding:16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}.ukho-connect span{opacity:.78;line-height:1.5}.ukho-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.ukho-attribution{margin-top:16px;font-family:Arial,sans-serif;font-size:12px;line-height:1.35}
-    @media(max-width:620px){.ukho-station{flex-direction:column}.ukho-actions>*{width:100%;text-align:center}}
-  `;document.head.appendChild(style);
+  function smooth(ctx,xy){if(!xy.length)return;ctx.moveTo(xy[0].x,xy[0].y);for(let i=1;i<xy.length-1;i++){const q=xy[i],n=xy[i+1];ctx.quadraticCurveTo(q.x,q.y,(q.x+n.x)/2,(q.y+n.y)/2)}const last=xy[xy.length-1];ctx.lineTo(last.x,last.y);}
+
+  window.drawTideChart=function(activeIndex=null){
+    const canvas=ensureLayout();if(!canvas)return;const rect=canvas.getBoundingClientRect(),cssWidth=Math.max(320,Math.round(rect.width||canvas.parentElement?.clientWidth||900)),cssHeight=480,ratio=Math.max(1,window.devicePixelRatio||1);
+    canvas.style.width='100%';canvas.style.height=`${cssHeight}px`;canvas.width=Math.round(cssWidth*ratio);canvas.height=Math.round(cssHeight*ratio);
+    const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,cssWidth,cssHeight);
+    const sourcePoints=(state.chartPoints||[]).filter(valid);if(sourcePoints.length<2){ctx.fillStyle='rgba(255,255,255,.9)';ctx.font='600 16px -apple-system,system-ui,sans-serif';ctx.fillText('No Open-Meteo tide-height series is available.',24,48);return;}
+    const points=sourcePoints.map(p=>({...p,displayHeight:Math.max(0,displayHeight(p.height))})),L=76,R=28,T=34,B=118,W=cssWidth-L-R,H=cssHeight-T-B,t0=pointDate(points[0]).getTime(),t1=pointDate(points[points.length-1]).getTime(),span=t1-t0||1;
+    const values=points.map(p=>p.displayHeight),min=Math.min(...values),max=Math.max(...values),padding=Math.max(.05,(max-min)*.08),lo=Math.max(0,min-padding),hi=max+padding,range=hi-lo||1,xy=points.map(p=>({x:L+(pointDate(p).getTime()-t0)*W/span,y:T+H-(p.displayHeight-lo)*H/range,p}));
+    ctx.lineWidth=1;ctx.font='12px -apple-system,system-ui,sans-serif';for(let i=0;i<6;i++){const y=T+i*H/5,val=hi-i*range/5;ctx.strokeStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(cssWidth-R,y);ctx.stroke();ctx.fillStyle='rgba(255,255,255,.72)';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(`${Math.max(0,val).toFixed(2)} ${unit()}`,L-10,y);}
+    const tickHours=cssWidth<520?4:cssWidth<780?3:2,firstTick=Math.ceil(t0/(tickHours*3600000))*(tickHours*3600000);for(let ts=firstTick;ts<=t1;ts+=tickHours*3600000){const x=L+(ts-t0)*W/span;if(x-L<58||cssWidth-R-x<58)continue;const d=new Date(ts);ctx.strokeStyle='rgba(255,255,255,.11)';ctx.beginPath();ctx.moveTo(x,T);ctx.lineTo(x,T+H);ctx.stroke();ctx.fillStyle='rgba(255,255,255,.92)';ctx.textAlign='center';ctx.textBaseline='top';ctx.font='700 12px -apple-system,system-ui,sans-serif';ctx.fillText(d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),x,T+H+12);}
+    ctx.strokeStyle='rgba(94,231,231,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(L,T);ctx.lineTo(L,T+H);ctx.stroke();ctx.fillStyle='#5ee7e7';ctx.textAlign='left';ctx.textBaseline='top';ctx.font='700 12px -apple-system,system-ui,sans-serif';ctx.fillText('NOW',L+6,T+5);
+    const fill=ctx.createLinearGradient(0,T,0,T+H);fill.addColorStop(0,'rgba(255,255,255,.35)');fill.addColorStop(1,'rgba(255,255,255,.03)');ctx.beginPath();ctx.moveTo(xy[0].x,T+H);ctx.lineTo(xy[0].x,xy[0].y);for(let i=1;i<xy.length-1;i++){const q=xy[i],n=xy[i+1];ctx.quadraticCurveTo(q.x,q.y,(q.x+n.x)/2,(q.y+n.y)/2)}ctx.lineTo(xy[xy.length-1].x,xy[xy.length-1].y);ctx.lineTo(xy[xy.length-1].x,T+H);ctx.closePath();ctx.fillStyle=fill;ctx.fill();ctx.beginPath();smooth(ctx,xy);ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    if(Number.isInteger(activeIndex)&&xy[activeIndex]){const q=xy[activeIndex],d=pointDate(q.p);ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.x,T);ctx.lineTo(q.x,T+H);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(q.x,q.y,5,0,Math.PI*2);ctx.fill();const out=document.getElementById('tideReadout');if(out)out.textContent=`${d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${q.p.displayHeight.toFixed(2)} ${unit()} relative tide height`;}
+    canvas.onpointermove=e=>{const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,target=t0+Math.max(0,Math.min(1,(x-L)/W))*span;let best=0,diff=Infinity;points.forEach((p,i)=>{const v=Math.abs(pointDate(p).getTime()-target);if(v<diff){diff=v;best=i}});window.drawTideChart(best)};canvas.onpointerleave=()=>window.drawTideChart();canvas.onclick=e=>canvas.onpointermove(e);
+  };
 })();
